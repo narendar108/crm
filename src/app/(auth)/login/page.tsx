@@ -4,7 +4,8 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Kanban, Mail, Lock, Loader2 } from "lucide-react";
+import Logo from "@/components/ui/Logo";
+import { Mail, Lock, Loader2 } from "lucide-react";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -37,11 +38,8 @@ export default function Login() {
     <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-            <Kanban className="w-6 h-6 text-white" />
-          </div>
-          <span className="text-2xl font-bold text-zinc-900">CRM</span>
+        <div className="flex items-center justify-center mb-8">
+          <Logo size="lg" variant="dark" />
         </div>
 
         {/* Form */}

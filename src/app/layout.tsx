@@ -7,7 +7,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "CRM - Sales Pipeline Management",
+  title: "nCRM - Sales Pipeline Management",
   description: "A modern CRM system for managing your sales pipeline, contacts, and deals.",
 };
 
