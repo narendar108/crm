@@ -1,67 +1,127 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase";
 import Header from "@/components/ui/Header";
+import { Deal, Contact, Company, Activity } from "@/lib/types";
 import {
   DollarSign,
   Users,
   Building2,
   TrendingUp,
-  ArrowUpRight,
-  ArrowDownRight,
+  Loader2,
 } from "lucide-react";
 
-const stats = [
-  {
-    name: "Total Revenue",
-    value: "$124,500",
-    change: "+12.5%",
-    trend: "up",
-    icon: DollarSign,
-    color: "bg-green-500",
-  },
-  {
-    name: "Active Deals",
-    value: "34",
-    change: "+4.3%",
-    trend: "up",
-    icon: TrendingUp,
-    color: "bg-blue-500",
-  },
-  {
-    name: "Total Contacts",
-    value: "2,420",
-    change: "+8.1%",
-    trend: "up",
-    icon: Users,
-    color: "bg-purple-500",
-  },
-  {
-    name: "Companies",
-    value: "156",
-    change: "-2.4%",
-    trend: "down",
-    icon: Building2,
-    color: "bg-orange-500",
-  },
-];
-
-const recentDeals = [
-  { id: 1, name: "Enterprise License", company: "Acme Corp", value: 45000, stage: "Proposal" },
-  { id: 2, name: "Consulting Package", company: "TechStart Inc", value: 12000, stage: "Negotiation" },
-  { id: 3, name: "Annual Subscription", company: "Global Systems", value: 8500, stage: "Qualified" },
-  { id: 4, name: "Implementation", company: "DataFlow Ltd", value: 32000, stage: "Lead" },
-  { id: 5, name: "Support Contract", company: "CloudNine", value: 5600, stage: "Closed Won" },
-];
-
-const recentActivities = [
-  { id: 1, type: "call", description: "Call with John from Acme Corp", time: "2 hours ago" },
-  { id: 2, type: "email", description: "Sent proposal to TechStart Inc", time: "4 hours ago" },
-  { id: 3, type: "meeting", description: "Demo meeting with Global Systems", time: "Yesterday" },
-  { id: 4, type: "task", description: "Follow up on DataFlow proposal", time: "Yesterday" },
-  { id: 5, type: "note", description: "Added notes for CloudNine deal", time: "2 days ago" },
-];
-
 export default function Dashboard() {
+  const supabase = createClient();
+  const [loading, setLoading] = useState(true);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    try {
+      const [dealsResult, contactsResult, companiesResult, activitiesResult] = await Promise.all([
+        supabase.from("deals").select("*").order("created_at", { ascending: false }),
+        supabase.from("contacts").select("*").order("created_at", { ascending: false }),
+        supabase.from("companies").select("*").order("created_at", { ascending: false }),
+        supabase.from("activities").select("*").order("created_at", { ascending: false }).limit(5),
+      ]);
+
+      if (dealsResult.data) setDeals(dealsResult.data);
+      if (contactsResult.data) setContacts(contactsResult.data);
+      if (companiesResult.data) setCompanies(companiesResult.data);
+      if (activitiesResult.data) setActivities(activitiesResult.data);
+    } catch (error) {
+      console.error("Error loading dashboard data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getCompanyName = (companyId: string | null) => {
+    if (!companyId) return "Unknown";
+    const company = companies.find((c) => c.id === companyId);
+    return company?.name || "Unknown";
+  };
+
+  const getStageName = (stage: string) => {
+    const stages: Record<string, string> = {
+      lead: "Lead",
+      qualified: "Qualified",
+      proposal: "Proposal",
+      negotiation: "Negotiation",
+      closed_won: "Closed Won",
+      closed_lost: "Closed Lost",
+    };
+    return stages[stage] || stage;
+  };
+
+  const getTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays === 1) return "Yesterday";
+    return `${diffDays} days ago`;
+  };
+
+  // Calculate stats
+  const totalRevenue = deals
+    .filter((d) => d.stage === "closed_won")
+    .reduce((sum, d) => sum + d.value, 0);
+
+  const activeDeals = deals.filter(
+    (d) => !["closed_won", "closed_lost"].includes(d.stage)
+  ).length;
+
+  const stats = [
+    {
+      name: "Total Revenue",
+      value: `$${totalRevenue.toLocaleString()}`,
+      icon: DollarSign,
+      color: "bg-green-500",
+    },
+    {
+      name: "Active Deals",
+      value: String(activeDeals),
+      icon: TrendingUp,
+      color: "bg-blue-500",
+    },
+    {
+      name: "Total Contacts",
+      value: String(contacts.length),
+      icon: Users,
+      color: "bg-purple-500",
+    },
+    {
+      name: "Companies",
+      value: String(companies.length),
+      icon: Building2,
+      color: "bg-orange-500",
+    },
+  ];
+
+  const recentDeals = deals.slice(0, 5);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
       <Header title="Dashboard" />
@@ -78,18 +138,6 @@ export default function Dashboard() {
                 <div className={`p-2 rounded-lg ${stat.color}`}>
                   <stat.icon className="w-5 h-5 text-white" />
                 </div>
-                <div
-                  className={`flex items-center gap-1 text-sm font-medium ${
-                    stat.trend === "up" ? "text-green-600" : "text-red-600"
-                  }`}
-                >
-                  {stat.change}
-                  {stat.trend === "up" ? (
-                    <ArrowUpRight className="w-4 h-4" />
-                  ) : (
-                    <ArrowDownRight className="w-4 h-4" />
-                  )}
-                </div>
               </div>
               <div className="text-2xl font-bold text-zinc-900">{stat.value}</div>
               <div className="text-sm text-zinc-500">{stat.name}</div>
@@ -105,20 +153,26 @@ export default function Dashboard() {
               <h2 className="text-lg font-semibold text-zinc-900">Recent Deals</h2>
             </div>
             <div className="divide-y divide-zinc-100">
-              {recentDeals.map((deal) => (
-                <div key={deal.id} className="px-6 py-4 flex items-center justify-between hover:bg-zinc-50">
-                  <div>
-                    <div className="font-medium text-zinc-900">{deal.name}</div>
-                    <div className="text-sm text-zinc-500">{deal.company}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-medium text-zinc-900">
-                      ${deal.value.toLocaleString()}
-                    </div>
-                    <div className="text-sm text-zinc-500">{deal.stage}</div>
-                  </div>
+              {recentDeals.length === 0 ? (
+                <div className="px-6 py-8 text-center text-zinc-500">
+                  No deals yet. Add your first deal in the Pipeline.
                 </div>
-              ))}
+              ) : (
+                recentDeals.map((deal) => (
+                  <div key={deal.id} className="px-6 py-4 flex items-center justify-between hover:bg-zinc-50">
+                    <div>
+                      <div className="font-medium text-zinc-900">{deal.title}</div>
+                      <div className="text-sm text-zinc-500">{getCompanyName(deal.company_id)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-medium text-zinc-900">
+                        ${deal.value.toLocaleString()}
+                      </div>
+                      <div className="text-sm text-zinc-500">{getStageName(deal.stage)}</div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -128,12 +182,18 @@ export default function Dashboard() {
               <h2 className="text-lg font-semibold text-zinc-900">Recent Activities</h2>
             </div>
             <div className="divide-y divide-zinc-100">
-              {recentActivities.map((activity) => (
-                <div key={activity.id} className="px-6 py-4 hover:bg-zinc-50">
-                  <div className="font-medium text-zinc-900">{activity.description}</div>
-                  <div className="text-sm text-zinc-500">{activity.time}</div>
+              {activities.length === 0 ? (
+                <div className="px-6 py-8 text-center text-zinc-500">
+                  No activities yet. Add your first activity.
                 </div>
-              ))}
+              ) : (
+                activities.map((activity) => (
+                  <div key={activity.id} className="px-6 py-4 hover:bg-zinc-50">
+                    <div className="font-medium text-zinc-900">{activity.title}</div>
+                    <div className="text-sm text-zinc-500">{getTimeAgo(activity.created_at)}</div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

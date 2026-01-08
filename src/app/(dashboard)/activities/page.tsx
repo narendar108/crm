@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase";
 import Header from "@/components/ui/Header";
 import Modal from "@/components/ui/Modal";
 import { Activity, ACTIVITY_TYPES } from "@/lib/types";
-import { Phone, Mail, Calendar, CheckSquare, FileText, Check, MoreHorizontal } from "lucide-react";
+import { Phone, Mail, Calendar, CheckSquare, FileText, Check, MoreHorizontal, Loader2 } from "lucide-react";
 
 const iconMap = {
   Phone,
@@ -14,20 +15,12 @@ const iconMap = {
   FileText,
 };
 
-const initialActivities: Activity[] = [
-  { id: "1", type: "call", title: "Follow up call with John", description: "Discuss pricing options", due_date: "2024-02-10", completed: false, deal_id: "1", contact_id: "1", company_id: "1", created_at: "", updated_at: "", user_id: "" },
-  { id: "2", type: "email", title: "Send proposal to TechStart", description: "Include all pricing tiers", due_date: "2024-02-08", completed: true, deal_id: "2", contact_id: "2", company_id: "2", created_at: "", updated_at: "", user_id: "" },
-  { id: "3", type: "meeting", title: "Demo presentation", description: "Product demo for Global Systems", due_date: "2024-02-12", completed: false, deal_id: "3", contact_id: "3", company_id: "3", created_at: "", updated_at: "", user_id: "" },
-  { id: "4", type: "task", title: "Prepare contract", description: "Draft contract for DataFlow deal", due_date: "2024-02-09", completed: false, deal_id: "4", contact_id: "4", company_id: "4", created_at: "", updated_at: "", user_id: "" },
-  { id: "5", type: "note", title: "Meeting notes", description: "Notes from CloudNine kickoff", due_date: null, completed: true, deal_id: "5", contact_id: "5", company_id: "5", created_at: "", updated_at: "", user_id: "" },
-  { id: "6", type: "call", title: "Quarterly review call", description: "Discuss Q1 performance", due_date: "2024-02-15", completed: false, deal_id: "6", contact_id: "6", company_id: "6", created_at: "", updated_at: "", user_id: "" },
-  { id: "7", type: "email", title: "Send invoice", description: "Invoice for training package", due_date: "2024-02-07", completed: true, deal_id: "7", contact_id: "7", company_id: "7", created_at: "", updated_at: "", user_id: "" },
-  { id: "8", type: "meeting", title: "Onboarding session", description: "New client onboarding", due_date: "2024-02-14", completed: false, deal_id: "8", contact_id: "8", company_id: "8", created_at: "", updated_at: "", user_id: "" },
-];
-
 export default function Activities() {
-  const [activities, setActivities] = useState<Activity[]>(initialActivities);
+  const supabase = createClient();
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<"all" | "pending" | "completed">("all");
   const [newActivity, setNewActivity] = useState({
     type: "task" as Activity["type"],
@@ -36,33 +29,78 @@ export default function Activities() {
     dueDate: "",
   });
 
-  const toggleComplete = (id: string) => {
+  useEffect(() => {
+    loadActivities();
+  }, []);
+
+  const loadActivities = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("activities")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      if (data) setActivities(data);
+    } catch (error) {
+      console.error("Error loading activities:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleComplete = async (id: string) => {
+    const activity = activities.find((a) => a.id === id);
+    if (!activity) return;
+
+    // Optimistic update
     setActivities(activities.map((a) =>
       a.id === id ? { ...a, completed: !a.completed } : a
     ));
+
+    // Update in Supabase
+    const { error } = await supabase
+      .from("activities")
+      .update({ completed: !activity.completed, updated_at: new Date().toISOString() })
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error updating activity:", error);
+      // Revert on error
+      setActivities(activities);
+    }
   };
 
-  const handleAddActivity = () => {
+  const handleAddActivity = async () => {
     if (!newActivity.title) return;
 
-    const activity: Activity = {
-      id: String(Date.now()),
-      type: newActivity.type,
-      title: newActivity.title,
-      description: newActivity.description || null,
-      due_date: newActivity.dueDate || null,
-      completed: false,
-      deal_id: null,
-      contact_id: null,
-      company_id: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      user_id: "",
-    };
+    setSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("activities")
+        .insert({
+          type: newActivity.type,
+          title: newActivity.title,
+          description: newActivity.description || null,
+          due_date: newActivity.dueDate || null,
+          completed: false,
+        })
+        .select()
+        .single();
 
-    setActivities([...activities, activity]);
-    setNewActivity({ type: "task", title: "", description: "", dueDate: "" });
-    setIsModalOpen(false);
+      if (error) throw error;
+
+      if (data) {
+        setActivities([data, ...activities]);
+      }
+
+      setNewActivity({ type: "task", title: "", description: "", dueDate: "" });
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error("Error adding activity:", error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const filteredActivities = activities.filter((a) => {
@@ -79,6 +117,14 @@ export default function Activities() {
     }
     return CheckSquare;
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -108,59 +154,67 @@ export default function Activities() {
 
         {/* Activities List */}
         <div className="bg-white rounded-xl border border-zinc-200 divide-y divide-zinc-100">
-          {filteredActivities.map((activity) => {
-            const Icon = getIcon(activity.type);
-            return (
-              <div
-                key={activity.id}
-                className={`p-4 flex items-start gap-4 hover:bg-zinc-50 ${
-                  activity.completed ? "opacity-60" : ""
-                }`}
-              >
-                {/* Checkbox */}
-                <button
-                  onClick={() => toggleComplete(activity.id)}
-                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
-                    activity.completed
-                      ? "bg-green-500 border-green-500 text-white"
-                      : "border-zinc-300 hover:border-blue-500"
+          {filteredActivities.length === 0 ? (
+            <div className="px-6 py-12 text-center text-zinc-500">
+              {filter === "all"
+                ? "No activities yet. Add your first activity to get started."
+                : `No ${filter} activities.`}
+            </div>
+          ) : (
+            filteredActivities.map((activity) => {
+              const Icon = getIcon(activity.type);
+              return (
+                <div
+                  key={activity.id}
+                  className={`p-4 flex items-start gap-4 hover:bg-zinc-50 ${
+                    activity.completed ? "opacity-60" : ""
                   }`}
                 >
-                  {activity.completed && <Check className="w-4 h-4" />}
-                </button>
+                  {/* Checkbox */}
+                  <button
+                    onClick={() => toggleComplete(activity.id)}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
+                      activity.completed
+                        ? "bg-green-500 border-green-500 text-white"
+                        : "border-zinc-300 hover:border-blue-500"
+                    }`}
+                  >
+                    {activity.completed && <Check className="w-4 h-4" />}
+                  </button>
 
-                {/* Icon */}
-                <div className="w-10 h-10 bg-zinc-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Icon className="w-5 h-5 text-zinc-600" />
+                  {/* Icon */}
+                  <div className="w-10 h-10 bg-zinc-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-5 h-5 text-zinc-600" />
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className={`font-medium text-zinc-900 ${activity.completed ? "line-through" : ""}`}>
+                      {activity.title}
+                    </h3>
+                    {activity.description && (
+                      <p className="text-sm text-zinc-500 mt-1">{activity.description}</p>
+                    )}
+                    {activity.due_date && (
+                      <p className="text-sm text-zinc-400 mt-2">
+                        Due: {new Date(activity.due_date).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Type badge */}
+                  <span className="px-2 py-1 bg-zinc-100 text-zinc-600 text-xs rounded-full capitalize">
+                    {activity.type}
+                  </span>
+
+                  {/* Actions */}
+                  <button className="p-1 text-zinc-400 hover:text-zinc-600 rounded">
+                    <MoreHorizontal className="w-5 h-5" />
+                  </button>
                 </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <h3 className={`font-medium text-zinc-900 ${activity.completed ? "line-through" : ""}`}>
-                    {activity.title}
-                  </h3>
-                  {activity.description && (
-                    <p className="text-sm text-zinc-500 mt-1">{activity.description}</p>
-                  )}
-                  {activity.due_date && (
-                    <p className="text-sm text-zinc-400 mt-2">
-                      Due: {new Date(activity.due_date).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
-
-                {/* Type badge */}
-                <span className="px-2 py-1 bg-zinc-100 text-zinc-600 text-xs rounded-full capitalize">
-                  {activity.type}
-                </span>
-
-                {/* Actions */}
-                <button className="p-1 text-zinc-400 hover:text-zinc-600 rounded">
-                  <MoreHorizontal className="w-5 h-5" />
-                </button>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -233,9 +287,17 @@ export default function Activities() {
             </button>
             <button
               onClick={handleAddActivity}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={saving}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              Add Activity
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                "Add Activity"
+              )}
             </button>
           </div>
         </div>

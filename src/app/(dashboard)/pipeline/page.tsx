@@ -1,44 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase";
 import Header from "@/components/ui/Header";
 import Modal from "@/components/ui/Modal";
-import { DEAL_STAGES, Deal, DealStage } from "@/lib/types";
-import { MoreHorizontal, Building2, User, Calendar } from "lucide-react";
-
-// Demo data
-const initialDeals: Deal[] = [
-  { id: "1", title: "Enterprise License", value: 45000, currency: "USD", stage: "lead", contact_id: "1", company_id: "1", expected_close_date: "2024-02-15", created_at: "", updated_at: "", user_id: "" },
-  { id: "2", title: "Consulting Package", value: 12000, currency: "USD", stage: "qualified", contact_id: "2", company_id: "2", expected_close_date: "2024-02-20", created_at: "", updated_at: "", user_id: "" },
-  { id: "3", title: "Annual Subscription", value: 8500, currency: "USD", stage: "proposal", contact_id: "3", company_id: "3", expected_close_date: "2024-02-28", created_at: "", updated_at: "", user_id: "" },
-  { id: "4", title: "Implementation", value: 32000, currency: "USD", stage: "negotiation", contact_id: "4", company_id: "4", expected_close_date: "2024-03-05", created_at: "", updated_at: "", user_id: "" },
-  { id: "5", title: "Support Contract", value: 5600, currency: "USD", stage: "closed_won", contact_id: "5", company_id: "5", expected_close_date: "2024-01-30", created_at: "", updated_at: "", user_id: "" },
-  { id: "6", title: "Platform Migration", value: 28000, currency: "USD", stage: "lead", contact_id: "6", company_id: "6", expected_close_date: "2024-03-15", created_at: "", updated_at: "", user_id: "" },
-  { id: "7", title: "Training Package", value: 7500, currency: "USD", stage: "qualified", contact_id: "7", company_id: "7", expected_close_date: "2024-02-25", created_at: "", updated_at: "", user_id: "" },
-  { id: "8", title: "API Integration", value: 15000, currency: "USD", stage: "proposal", contact_id: "8", company_id: "8", expected_close_date: "2024-03-01", created_at: "", updated_at: "", user_id: "" },
-];
-
-const companies: Record<string, string> = {
-  "1": "Acme Corp",
-  "2": "TechStart Inc",
-  "3": "Global Systems",
-  "4": "DataFlow Ltd",
-  "5": "CloudNine",
-  "6": "InnovateTech",
-  "7": "FutureLabs",
-  "8": "DigitalFirst",
-};
+import { DEAL_STAGES, Deal, DealStage, Company } from "@/lib/types";
+import { MoreHorizontal, Building2, Calendar, Loader2 } from "lucide-react";
 
 export default function Pipeline() {
-  const [deals, setDeals] = useState<Deal[]>(initialDeals);
+  const supabase = createClient();
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [draggedDeal, setDraggedDeal] = useState<Deal | null>(null);
+  const [saving, setSaving] = useState(false);
   const [newDeal, setNewDeal] = useState({
     title: "",
     value: "",
-    company: "",
+    company_id: "",
     expectedCloseDate: "",
   });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [dealsResult, companiesResult] = await Promise.all([
+        supabase.from("deals").select("*").order("created_at", { ascending: false }),
+        supabase.from("companies").select("*").order("name"),
+      ]);
+
+      if (dealsResult.data) setDeals(dealsResult.data);
+      if (companiesResult.data) setCompanies(companiesResult.data);
+    } catch (error) {
+      console.error("Error loading data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getDealsByStage = (stage: DealStage) => {
     return deals.filter((deal) => deal.stage === stage);
@@ -46,6 +48,12 @@ export default function Pipeline() {
 
   const getStageTotal = (stage: DealStage) => {
     return getDealsByStage(stage).reduce((sum, deal) => sum + deal.value, 0);
+  };
+
+  const getCompanyName = (companyId: string | null) => {
+    if (!companyId) return null;
+    const company = companies.find((c) => c.id === companyId);
+    return company?.name || null;
   };
 
   const handleDragStart = (e: React.DragEvent, deal: Deal) => {
@@ -58,37 +66,69 @@ export default function Pipeline() {
     e.dataTransfer.dropEffect = "move";
   };
 
-  const handleDrop = (e: React.DragEvent, stage: DealStage) => {
+  const handleDrop = async (e: React.DragEvent, stage: DealStage) => {
     e.preventDefault();
     if (draggedDeal && draggedDeal.stage !== stage) {
+      // Optimistic update
       setDeals(deals.map((d) =>
         d.id === draggedDeal.id ? { ...d, stage } : d
       ));
+
+      // Update in Supabase
+      const { error } = await supabase
+        .from("deals")
+        .update({ stage, updated_at: new Date().toISOString() })
+        .eq("id", draggedDeal.id);
+
+      if (error) {
+        console.error("Error updating deal:", error);
+        // Revert on error
+        setDeals(deals);
+      }
     }
     setDraggedDeal(null);
   };
 
-  const handleAddDeal = () => {
+  const handleAddDeal = async () => {
     if (!newDeal.title || !newDeal.value) return;
 
-    const deal: Deal = {
-      id: String(Date.now()),
-      title: newDeal.title,
-      value: Number(newDeal.value),
-      currency: "USD",
-      stage: "lead",
-      contact_id: null,
-      company_id: null,
-      expected_close_date: newDeal.expectedCloseDate || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      user_id: "",
-    };
+    setSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("deals")
+        .insert({
+          title: newDeal.title,
+          value: Number(newDeal.value),
+          currency: "USD",
+          stage: "lead" as DealStage,
+          company_id: newDeal.company_id || null,
+          expected_close_date: newDeal.expectedCloseDate || null,
+        })
+        .select()
+        .single();
 
-    setDeals([...deals, deal]);
-    setNewDeal({ title: "", value: "", company: "", expectedCloseDate: "" });
-    setIsModalOpen(false);
+      if (error) throw error;
+
+      if (data) {
+        setDeals([data, ...deals]);
+      }
+
+      setNewDeal({ title: "", value: "", company_id: "", expectedCloseDate: "" });
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error("Error adding deal:", error);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -151,7 +191,7 @@ export default function Pipeline() {
                       {deal.company_id && (
                         <div className="flex items-center gap-2">
                           <Building2 className="w-3.5 h-3.5" />
-                          {companies[deal.company_id]}
+                          {getCompanyName(deal.company_id)}
                         </div>
                       )}
                       {deal.expected_close_date && (
@@ -206,13 +246,18 @@ export default function Pipeline() {
             <label className="block text-sm font-medium text-zinc-700 mb-1">
               Company
             </label>
-            <input
-              type="text"
-              value={newDeal.company}
-              onChange={(e) => setNewDeal({ ...newDeal, company: e.target.value })}
+            <select
+              value={newDeal.company_id}
+              onChange={(e) => setNewDeal({ ...newDeal, company_id: e.target.value })}
               className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., Acme Corp"
-            />
+            >
+              <option value="">Select a company</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -236,9 +281,17 @@ export default function Pipeline() {
             </button>
             <button
               onClick={handleAddDeal}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={saving}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              Add Deal
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                "Add Deal"
+              )}
             </button>
           </div>
         </div>
