@@ -86,6 +86,9 @@ export default function Activities() {
 
     setSaving(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("activities")
         .insert({
@@ -94,6 +97,7 @@ export default function Activities() {
           description: newActivity.description || null,
           due_date: newActivity.dueDate || null,
           completed: false,
+          user_id: user.id,
         })
         .select()
         .single();

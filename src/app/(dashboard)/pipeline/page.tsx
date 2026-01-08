@@ -102,6 +102,9 @@ export default function Pipeline() {
 
     setSaving(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("deals")
         .insert({
@@ -111,6 +114,7 @@ export default function Pipeline() {
           stage: "lead" as DealStage,
           company_id: newDeal.company_id || null,
           expected_close_date: newDeal.expectedCloseDate || null,
+          user_id: user.id,
         })
         .select()
         .single();

@@ -54,6 +54,9 @@ export default function Companies() {
 
     setSaving(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("companies")
         .insert({
@@ -61,6 +64,7 @@ export default function Companies() {
           industry: newCompany.industry || null,
           website: newCompany.website || null,
           address: newCompany.address || null,
+          user_id: user.id,
         })
         .select()
         .single();

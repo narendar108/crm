@@ -65,6 +65,9 @@ export default function Contacts() {
 
     setSaving(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("contacts")
         .insert({
@@ -74,6 +77,7 @@ export default function Contacts() {
           phone: newContact.phone || null,
           position: newContact.position || null,
           company_id: newContact.company_id || null,
+          user_id: user.id,
         })
         .select()
         .single();
