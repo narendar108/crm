@@ -5,15 +5,24 @@ import { createClient } from "@/lib/supabase";
 import Header from "@/components/ui/Header";
 import Modal from "@/components/ui/Modal";
 import { Company } from "@/lib/types";
-import { Globe, MapPin, MoreHorizontal, Loader2 } from "lucide-react";
+import { Globe, MapPin, MoreHorizontal, Loader2, Trash2 } from "lucide-react";
 
 export default function Companies() {
   const supabase = createClient();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [newCompany, setNewCompany] = useState({
+    name: "",
+    industry: "",
+    website: "",
+    address: "",
+  });
+  const [editCompany, setEditCompany] = useState({
     name: "",
     industry: "",
     website: "",
@@ -71,6 +80,72 @@ export default function Companies() {
     }
   };
 
+  const handleCompanyClick = (company: Company) => {
+    setSelectedCompany(company);
+    setEditCompany({
+      name: company.name,
+      industry: company.industry || "",
+      website: company.website || "",
+      address: company.address || "",
+    });
+    setIsDetailModalOpen(true);
+  };
+
+  const handleUpdateCompany = async () => {
+    if (!selectedCompany || !editCompany.name) return;
+
+    setSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("companies")
+        .update({
+          name: editCompany.name,
+          industry: editCompany.industry || null,
+          website: editCompany.website || null,
+          address: editCompany.address || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedCompany.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setCompanies(companies.map((c) => (c.id === data.id ? data : c)));
+      }
+
+      setIsDetailModalOpen(false);
+      setSelectedCompany(null);
+    } catch (error) {
+      console.error("Error updating company:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteCompany = async () => {
+    if (!selectedCompany) return;
+
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from("companies")
+        .delete()
+        .eq("id", selectedCompany.id);
+
+      if (error) throw error;
+
+      setCompanies(companies.filter((c) => c.id !== selectedCompany.id));
+      setIsDetailModalOpen(false);
+      setSelectedCompany(null);
+    } catch (error) {
+      console.error("Error deleting company:", error);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -97,13 +172,20 @@ export default function Companies() {
             {companies.map((company) => (
               <div
                 key={company.id}
-                className="bg-white rounded-xl border border-zinc-200 p-6 hover:shadow-lg transition-shadow"
+                onClick={() => handleCompanyClick(company)}
+                className="bg-white rounded-xl border border-zinc-200 p-6 hover:shadow-lg transition-shadow cursor-pointer"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">
                     {company.name[0]}
                   </div>
-                  <button className="p-1 text-zinc-400 hover:text-zinc-600 rounded">
+                  <button
+                    className="p-1 text-zinc-400 hover:text-zinc-600 rounded"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCompanyClick(company);
+                    }}
+                  >
                     <MoreHorizontal className="w-5 h-5" />
                   </button>
                 </div>
@@ -122,9 +204,7 @@ export default function Companies() {
                   {company.website && (
                     <div className="flex items-center gap-2">
                       <Globe className="w-4 h-4" />
-                      <a href={`https://${company.website}`} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600">
-                        {company.website}
-                      </a>
+                      <span className="hover:text-blue-600">{company.website}</span>
                     </div>
                   )}
                   {company.address && (
@@ -215,6 +295,105 @@ export default function Companies() {
                 </>
               ) : (
                 "Add Company"
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Company Detail/Edit Modal */}
+      <Modal
+        isOpen={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedCompany(null);
+        }}
+        title="Edit Company"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Company Name
+            </label>
+            <input
+              type="text"
+              value={editCompany.name}
+              onChange={(e) => setEditCompany({ ...editCompany, name: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Industry
+            </label>
+            <input
+              type="text"
+              value={editCompany.industry}
+              onChange={(e) => setEditCompany({ ...editCompany, industry: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Website
+            </label>
+            <input
+              type="text"
+              value={editCompany.website}
+              onChange={(e) => setEditCompany({ ...editCompany, website: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="example.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Address
+            </label>
+            <input
+              type="text"
+              value={editCompany.address}
+              onChange={(e) => setEditCompany({ ...editCompany, address: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={handleDeleteCompany}
+              disabled={deleting}
+              className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {deleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Delete
+            </button>
+            <button
+              onClick={() => {
+                setIsDetailModalOpen(false);
+                setSelectedCompany(null);
+              }}
+              className="flex-1 px-4 py-2 border border-zinc-300 rounded-lg text-zinc-700 hover:bg-zinc-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleUpdateCompany}
+              disabled={saving}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Changes"
               )}
             </button>
           </div>

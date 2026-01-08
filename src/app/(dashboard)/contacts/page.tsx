@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase";
 import Header from "@/components/ui/Header";
 import Modal from "@/components/ui/Modal";
 import { Contact, Company } from "@/lib/types";
-import { Mail, Phone, Building2, MoreHorizontal, Loader2 } from "lucide-react";
+import { Mail, Phone, Building2, MoreHorizontal, Loader2, Trash2 } from "lucide-react";
 
 export default function Contacts() {
   const supabase = createClient();
@@ -13,8 +13,19 @@ export default function Contacts() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [newContact, setNewContact] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    position: "",
+    company_id: "",
+  });
+  const [editContact, setEditContact] = useState({
     firstName: "",
     lastName: "",
     email: "",
@@ -82,6 +93,76 @@ export default function Contacts() {
     }
   };
 
+  const handleContactClick = (contact: Contact) => {
+    setSelectedContact(contact);
+    setEditContact({
+      firstName: contact.first_name,
+      lastName: contact.last_name,
+      email: contact.email || "",
+      phone: contact.phone || "",
+      position: contact.position || "",
+      company_id: contact.company_id || "",
+    });
+    setIsDetailModalOpen(true);
+  };
+
+  const handleUpdateContact = async () => {
+    if (!selectedContact || !editContact.firstName || !editContact.lastName) return;
+
+    setSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("contacts")
+        .update({
+          first_name: editContact.firstName,
+          last_name: editContact.lastName,
+          email: editContact.email || null,
+          phone: editContact.phone || null,
+          position: editContact.position || null,
+          company_id: editContact.company_id || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedContact.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setContacts(contacts.map((c) => (c.id === data.id ? data : c)));
+      }
+
+      setIsDetailModalOpen(false);
+      setSelectedContact(null);
+    } catch (error) {
+      console.error("Error updating contact:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteContact = async () => {
+    if (!selectedContact) return;
+
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from("contacts")
+        .delete()
+        .eq("id", selectedContact.id);
+
+      if (error) throw error;
+
+      setContacts(contacts.filter((c) => c.id !== selectedContact.id));
+      setIsDetailModalOpen(false);
+      setSelectedContact(null);
+    } catch (error) {
+      console.error("Error deleting contact:", error);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -120,7 +201,11 @@ export default function Contacts() {
                 </tr>
               ) : (
                 contacts.map((contact) => (
-                  <tr key={contact.id} className="hover:bg-zinc-50">
+                  <tr
+                    key={contact.id}
+                    className="hover:bg-zinc-50 cursor-pointer"
+                    onClick={() => handleContactClick(contact)}
+                  >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-medium">
@@ -159,7 +244,13 @@ export default function Contacts() {
                     </td>
                     <td className="px-6 py-4 text-zinc-600">{contact.position || "-"}</td>
                     <td className="px-6 py-4">
-                      <button className="p-1 text-zinc-400 hover:text-zinc-600 rounded">
+                      <button
+                        className="p-1 text-zinc-400 hover:text-zinc-600 rounded"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleContactClick(contact);
+                        }}
+                      >
                         <MoreHorizontal className="w-5 h-5" />
                       </button>
                     </td>
@@ -276,6 +367,135 @@ export default function Contacts() {
                 </>
               ) : (
                 "Add Contact"
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Contact Detail/Edit Modal */}
+      <Modal
+        isOpen={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedContact(null);
+        }}
+        title="Edit Contact"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 mb-1">
+                First Name
+              </label>
+              <input
+                type="text"
+                value={editContact.firstName}
+                onChange={(e) => setEditContact({ ...editContact, firstName: e.target.value })}
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 mb-1">
+                Last Name
+              </label>
+              <input
+                type="text"
+                value={editContact.lastName}
+                onChange={(e) => setEditContact({ ...editContact, lastName: e.target.value })}
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Email
+            </label>
+            <input
+              type="email"
+              value={editContact.email}
+              onChange={(e) => setEditContact({ ...editContact, email: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Phone
+            </label>
+            <input
+              type="tel"
+              value={editContact.phone}
+              onChange={(e) => setEditContact({ ...editContact, phone: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Company
+            </label>
+            <select
+              value={editContact.company_id}
+              onChange={(e) => setEditContact({ ...editContact, company_id: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select a company</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Position
+            </label>
+            <input
+              type="text"
+              value={editContact.position}
+              onChange={(e) => setEditContact({ ...editContact, position: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={handleDeleteContact}
+              disabled={deleting}
+              className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {deleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Delete
+            </button>
+            <button
+              onClick={() => {
+                setIsDetailModalOpen(false);
+                setSelectedContact(null);
+              }}
+              className="flex-1 px-4 py-2 border border-zinc-300 rounded-lg text-zinc-700 hover:bg-zinc-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleUpdateContact}
+              disabled={saving}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Changes"
               )}
             </button>
           </div>

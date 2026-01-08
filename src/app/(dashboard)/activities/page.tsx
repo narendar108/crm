@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase";
 import Header from "@/components/ui/Header";
 import Modal from "@/components/ui/Modal";
 import { Activity, ACTIVITY_TYPES } from "@/lib/types";
-import { Phone, Mail, Calendar, CheckSquare, FileText, Check, MoreHorizontal, Loader2 } from "lucide-react";
+import { Phone, Mail, Calendar, CheckSquare, FileText, Check, MoreHorizontal, Loader2, Trash2 } from "lucide-react";
 
 const iconMap = {
   Phone,
@@ -20,13 +20,23 @@ export default function Activities() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [filter, setFilter] = useState<"all" | "pending" | "completed">("all");
   const [newActivity, setNewActivity] = useState({
     type: "task" as Activity["type"],
     title: "",
     description: "",
     dueDate: "",
+  });
+  const [editActivity, setEditActivity] = useState({
+    type: "task" as Activity["type"],
+    title: "",
+    description: "",
+    dueDate: "",
+    completed: false,
   });
 
   useEffect(() => {
@@ -49,16 +59,17 @@ export default function Activities() {
     }
   };
 
-  const toggleComplete = async (id: string) => {
+  const toggleComplete = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+
     const activity = activities.find((a) => a.id === id);
     if (!activity) return;
 
-    // Optimistic update
+    const previousActivities = [...activities];
     setActivities(activities.map((a) =>
       a.id === id ? { ...a, completed: !a.completed } : a
     ));
 
-    // Update in Supabase
     const { error } = await supabase
       .from("activities")
       .update({ completed: !activity.completed, updated_at: new Date().toISOString() })
@@ -66,8 +77,7 @@ export default function Activities() {
 
     if (error) {
       console.error("Error updating activity:", error);
-      // Revert on error
-      setActivities(activities);
+      setActivities(previousActivities);
     }
   };
 
@@ -100,6 +110,74 @@ export default function Activities() {
       console.error("Error adding activity:", error);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleActivityClick = (activity: Activity) => {
+    setSelectedActivity(activity);
+    setEditActivity({
+      type: activity.type,
+      title: activity.title,
+      description: activity.description || "",
+      dueDate: activity.due_date || "",
+      completed: activity.completed,
+    });
+    setIsDetailModalOpen(true);
+  };
+
+  const handleUpdateActivity = async () => {
+    if (!selectedActivity || !editActivity.title) return;
+
+    setSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("activities")
+        .update({
+          type: editActivity.type,
+          title: editActivity.title,
+          description: editActivity.description || null,
+          due_date: editActivity.dueDate || null,
+          completed: editActivity.completed,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedActivity.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setActivities(activities.map((a) => (a.id === data.id ? data : a)));
+      }
+
+      setIsDetailModalOpen(false);
+      setSelectedActivity(null);
+    } catch (error) {
+      console.error("Error updating activity:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteActivity = async () => {
+    if (!selectedActivity) return;
+
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from("activities")
+        .delete()
+        .eq("id", selectedActivity.id);
+
+      if (error) throw error;
+
+      setActivities(activities.filter((a) => a.id !== selectedActivity.id));
+      setIsDetailModalOpen(false);
+      setSelectedActivity(null);
+    } catch (error) {
+      console.error("Error deleting activity:", error);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -166,13 +244,14 @@ export default function Activities() {
               return (
                 <div
                   key={activity.id}
-                  className={`p-4 flex items-start gap-4 hover:bg-zinc-50 ${
+                  onClick={() => handleActivityClick(activity)}
+                  className={`p-4 flex items-start gap-4 hover:bg-zinc-50 cursor-pointer ${
                     activity.completed ? "opacity-60" : ""
                   }`}
                 >
                   {/* Checkbox */}
                   <button
-                    onClick={() => toggleComplete(activity.id)}
+                    onClick={(e) => toggleComplete(activity.id, e)}
                     className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
                       activity.completed
                         ? "bg-green-500 border-green-500 text-white"
@@ -208,7 +287,13 @@ export default function Activities() {
                   </span>
 
                   {/* Actions */}
-                  <button className="p-1 text-zinc-400 hover:text-zinc-600 rounded">
+                  <button
+                    className="p-1 text-zinc-400 hover:text-zinc-600 rounded"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleActivityClick(activity);
+                    }}
+                  >
                     <MoreHorizontal className="w-5 h-5" />
                   </button>
                 </div>
@@ -297,6 +382,122 @@ export default function Activities() {
                 </>
               ) : (
                 "Add Activity"
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Activity Detail/Edit Modal */}
+      <Modal
+        isOpen={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedActivity(null);
+        }}
+        title="Edit Activity"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Type
+            </label>
+            <select
+              value={editActivity.type}
+              onChange={(e) => setEditActivity({ ...editActivity, type: e.target.value as Activity["type"] })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {ACTIVITY_TYPES.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Title
+            </label>
+            <input
+              type="text"
+              value={editActivity.title}
+              onChange={(e) => setEditActivity({ ...editActivity, title: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Description
+            </label>
+            <textarea
+              value={editActivity.description}
+              onChange={(e) => setEditActivity({ ...editActivity, description: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">
+              Due Date
+            </label>
+            <input
+              type="date"
+              value={editActivity.dueDate}
+              onChange={(e) => setEditActivity({ ...editActivity, dueDate: e.target.value })}
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="completed"
+              checked={editActivity.completed}
+              onChange={(e) => setEditActivity({ ...editActivity, completed: e.target.checked })}
+              className="w-4 h-4 text-blue-600 border-zinc-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="completed" className="text-sm font-medium text-zinc-700">
+              Mark as completed
+            </label>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={handleDeleteActivity}
+              disabled={deleting}
+              className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {deleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Delete
+            </button>
+            <button
+              onClick={() => {
+                setIsDetailModalOpen(false);
+                setSelectedActivity(null);
+              }}
+              className="flex-1 px-4 py-2 border border-zinc-300 rounded-lg text-zinc-700 hover:bg-zinc-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleUpdateActivity}
+              disabled={saving}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Changes"
               )}
             </button>
           </div>
